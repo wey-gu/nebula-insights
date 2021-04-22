@@ -153,7 +153,8 @@ class DataFetcher:
                 if DEBUG:
                     print(f"[DEBUG] { datetime.datetime.now() } "
                           f"get_clones_traffic { repo_key }")
-                clones_traffic = repo.get_clones_traffic().get("clones")[:-1]
+                # We collect yesterday only
+                clones_traffic = repo.get_clones_traffic().get("clones")[-2:-1]
                 clones_stats = { str(item.timestamp.date()): {
                         "count": item.count, "uniques": item.uniques}
                     for item in clones_traffic }
