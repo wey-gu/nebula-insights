@@ -154,7 +154,8 @@ class DataFetcher:
                     print(f"[DEBUG] { datetime.datetime.now() } "
                           f"get_clones_traffic { repo_key }")
                 clones_traffic = repo.get_clones_traffic().get("clones")[:-1]
-                clones_stats = { str(item.timestamp.date()):item.count
+                clones_stats = { str(item.timestamp.date()): {
+                        "count": item.count, "uniques": item.uniques}
                     for item in clones_traffic }
                 self.github_stats[repo_key][type_key].update(clones_stats)
                 break
@@ -315,7 +316,9 @@ class DataFetcher:
         for repo, repo_dict in self.github_stats.items():
             # convert github clone stats
             for date, count in repo_dict.get('clones', {}).items():
-                github_clone_record = dict(repo=repo, date=date, count=count)
+                github_clone_record = dict(
+                    repo=repo, date=date,
+                    count=count['count'], uniques=count['uniques'])
                 github_clone_list.append(f"{ json.dumps(github_clone_record) }")
             for tag, tag_dict in repo_dict.get('releases', {}).items():
                 if not tag_dict:
@@ -401,7 +404,8 @@ class DataFetcher:
             schema=[
                 bigquery.SchemaField("repo", "STRING", mode="REQUIRED"),
                 bigquery.SchemaField("date", "DATE", mode="REQUIRED"),
-                bigquery.SchemaField("count", "INTEGER", mode="REQUIRED")
+                bigquery.SchemaField("count", "INTEGER", mode="REQUIRED"),
+                bigquery.SchemaField("uniques", "INTEGER", mode="REQUIRED")
             ],
             source_format=bigquery.SourceFormat.NEWLINE_DELIMITED_JSON,
         )
@@ -439,14 +443,27 @@ class DataFetcher:
         github_release_uri = f"{ URI_PREFIX }/{ GCS_RECORD_NAME['github_release'] }"
         dockerhub_image_uri = f"{ URI_PREFIX }/{ GCS_RECORD_NAME['dockerhub_image'] }"
 
-        self.load_bigquery_from_gcs(
-            bq_client, github_clone_uri, github_clone_table_id, github_clone_job_config)
+        print(f"[INFO] { datetime.datetime.now() } "
+              f"Started data loading to BigQuery")
 
-        self.load_bigquery_from_gcs(
-            bq_client, github_release_uri, github_release_table_id, github_release_job_config)
+        j_clone = self.load_bigquery_from_gcs(
+            bq_client, github_clone_uri, github_clone_table_id,
+            github_clone_job_config)
 
-        self.load_bigquery_from_gcs(
-            bq_client, dockerhub_image_uri, dockerhub_image_table_id, dockerhub_image_job_config)
+        j_rel = self.load_bigquery_from_gcs(
+            bq_client, github_release_uri, github_release_table_id,
+            github_release_job_config)
+
+        j_docker = self.load_bigquery_from_gcs(
+            bq_client, dockerhub_image_uri, dockerhub_image_table_id,
+            dockerhub_image_job_config)
+
+        for job in (j_clone, j_rel, j_docker):
+            try:
+                job.result()
+            except:
+                print(f"[ERROR] { datetime.datetime.now() } "
+                      f"Failed during data loading to BigQuery: { job.errors }")
 
 
 def data_fetch(event, context):

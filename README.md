@@ -377,11 +377,13 @@ They should be converted into above JSON file lines.
 
 Install GCP SDK/CLI referring to https://cloud.google.com/sdk/docs/install
 
-### Scheduler App(based on GAE) Creation
+### Scheduler Job(based on GAE) Creation
 
 ```bash
-$ gcloud app create
+$ ~~gcloud app create~~
 ```
+
+Create Jobs in cloudscheduler console: https://console.cloud.google.com/cloudscheduler
 
 ### Pub/Sub Creation
 
