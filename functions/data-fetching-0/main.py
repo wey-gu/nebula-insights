@@ -154,11 +154,13 @@ class DataFetcher:
                     print(f"[DEBUG] { datetime.datetime.now() } "
                           f"get_clones_traffic { repo_key }")
                 # We collect yesterday only
-                clones_traffic = repo.get_clones_traffic().get("clones")[-2:-1]
-                clones_stats = { str(item.timestamp.date()): {
+                clones_traffic = repo.get_clones_traffic().get("clones", [])
+                clones_stats = {str(item.timestamp.date()): {
                         "count": item.count, "uniques": item.uniques}
-                    for item in clones_traffic }
-                self.github_stats[repo_key][type_key].update(clones_stats)
+                    for item in clones_traffic
+                    if item.timestamp.date() == self.get_yesterday()}
+                if clones_stats:
+                    self.github_stats[repo_key][type_key].update(clones_stats)
                 break
             except RateLimitExceededException:
                 sleep_time = self.get_github_sleep_time(g)
