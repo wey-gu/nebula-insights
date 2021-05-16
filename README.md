@@ -183,7 +183,7 @@ In [40]: assets[0].browser_download_url
 Out[40]: 'https://github.com/vesoft-inc/nebula/releases/download/v1.2.1/nebula-1.2.1.el6-5.x86_64.rpm'
 
 In [41]: assets[0].download_count
-Out[41]: 0
+Out[41]: 55
 
 In [43]: assets[0].name
 Out[43]: 'nebula-1.2.1.el6-5.x86_64.rpm'

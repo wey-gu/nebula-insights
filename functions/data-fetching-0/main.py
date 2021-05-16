@@ -84,6 +84,7 @@ BUCKET = "nebula-insights"
 GCS_RECORD_NAME = {
     "github_clone": "github_clone_stats.json",
     "github_release": "github_release_stats.json",
+    "github_issue_pr": "github_issue_pr_stats.json",
     "dockerhub_image": "dockerhub_image_stats.json"
 }
 
@@ -92,6 +93,7 @@ BQ_DATASET = "nebula_insights"
 BQ_TABLE_NAME = {
     "github_clone": "github_clone_records",
     "github_release": "github_release_records",
+    "github_pr_issue": "github_pr_issue_records",
     "dockerhub_image": "dockerhub_image_records"
 }
 GCP_LOCATION = "asia-east2"
@@ -207,6 +209,76 @@ class DataFetcher:
                     time.sleep(sleep_time)
                     continue
 
+    def run_github_v4_query(self, token, query):
+        return requests.post(
+            "https://api.github.com/graphql",
+            json={"query": query},
+            headers={"Authorization": f"token {token}"})
+
+    def get_github_issue_pr_stats(self, g, org, repo, token):
+        repo_key = f"{ org.login }/{ repo.name }"
+        type_key = "issues_and_pr"
+        query_issue_and_pr = (
+            f"{{\n"
+            f"  repository(owner:\"{ org.login }\", name:\"{ repo.name }\") {{\n"
+            f"    all_pr_count: pullRequests {{\n"
+            f"      totalCount\n"
+            f"    }}\n"
+            f"    open_pr_count: pullRequests(states: OPEN) {{\n"
+            f"      totalCount\n"
+            f"    }}\n"
+            f"    merged_pr_count: pullRequests(states: MERGED) {{\n"
+            f"      totalCount\n"
+            f"    }}\n"
+            f"    all_issue_count: issues {{\n"
+            f"      totalCount\n"
+            f"    }}\n"
+            f"    open_issue_count: issues(states: OPEN) {{\n"
+            f"      totalCount\n"
+            f"    }}\n"
+            f"    closed_issue_count: issues(states: CLOSED) {{\n"
+            f"      totalCount\n"
+            f"    }}\n"
+            f"  }}\n"
+            f"}}")
+
+        # We collect yesterday only
+        date_key = str(self.get_yesterday())
+        issue_stats = {date_key: {
+            "all_issue_count" : 0,
+            "open_issue_count" : 0,
+            "closed_issue_count" : 0,
+            "all_pr_count": 0,
+            "open_pr_count": 0,
+            "merged_pr_count": 0
+        }}
+
+        while True:
+            try:
+                if DEBUG:
+                    print(f"[DEBUG] { datetime.datetime.now() } "
+                          f"get_github_issue_stats { repo_key }")
+                # We collect yesterday only
+                open_issue_count = repo.open_issues_count
+                response = self.run_github_v4_query(token, query_issue_and_pr)
+                if response.status_code == 200:
+                    data = response.json().get('data', {}).get('repository', {})
+                    issue_stats[date_key].update(data)
+                    self.github_stats[repo_key][type_key].update(issue_stats)
+                    return
+                if response.status_code == 403:
+                    raise RateLimitExceededException
+                else:
+                    print(f"[ERROR] { datetime.datetime.now() } "
+                          f"issue_pr_stats Exception on { repo_key}:{ response }")
+                    break
+            except RateLimitExceededException:
+                sleep_time = self.get_github_sleep_time(g)
+                print(f"[ERROR] { datetime.datetime.now() } "
+                      f"RateLimitExceeded, sleep { sleep_time }")
+                time.sleep(sleep_time)
+                continue
+
     def get_data_from_github(self):
         token = self.conf.get("github_token")
         g = Github(login_or_token=token, timeout=60, retry=Retry(
@@ -219,9 +291,13 @@ class DataFetcher:
             repo_key = f"{ org.login }/{ repo.name }"
             if repo.name not in GH_REPO_EXCLUDE_LIST:
                 self.github_stats.setdefault(
-                    repo_key, {"clones": {}, "releases": {}})
+                    repo_key, {
+                        "clones": {},
+                        "releases": {},
+                        "issues_and_pr": {}})
                 self.get_github_clone_stats(g, org, repo)
                 self.get_github_release_stats(g, org, repo)
+                self.get_github_issue_pr_stats(g, org, repo, token)
         if not self.github_stats:
             pass  # need to wire the notification here
 
@@ -316,6 +392,7 @@ class DataFetcher:
     def archive_github_data(self, folder):
         github_clone_list = list()
         github_release_list = list()
+        github_issue_pr_list = list()
         for repo, repo_dict in self.github_stats.items():
             # convert github clone stats
             for date, count in repo_dict.get('clones', {}).items():
@@ -339,6 +416,11 @@ class DataFetcher:
                     repo=repo, date=str(self.get_yesterday()), tag=tag,
                     count=count, assets=assets)
                 github_release_list.append(f"{ json.dumps(github_release_record) }")
+            for date, count in repo_dict.get('issues_and_pr', {}).items():
+                github_issue_and_pr_record = dict(count)
+                github_issue_and_pr_record.update(dict(date=date))
+                github_issue_pr_list.append(
+                    f"{ json.dumps(github_issue_and_pr_record) }")
         if github_clone_list:
             self.save_str_to_gcs_ascii(
                 bucket=self.bucket,
@@ -349,6 +431,11 @@ class DataFetcher:
                 bucket=self.bucket,
                 string_obj="\n".join(github_release_list),
                 filename=f"{ folder }/{ GCS_RECORD_NAME['github_release'] }")
+        if github_issue_pr_list:
+            self.save_str_to_gcs_ascii(
+                bucket=self.bucket,
+                string_obj="\n".join(github_issue_pr_list),
+                filename=f"{ folder }/{ GCS_RECORD_NAME['github_issue_pr'] }")
 
     def archive_dockerhub_data(self, folder):
         dockerhub_image_list = list()
@@ -400,6 +487,7 @@ class DataFetcher:
         # table_id
         github_clone_table_id = f"{ TABLE_ID_PREFIX }.{ BQ_TABLE_NAME['github_clone'] }"
         github_release_table_id = f"{ TABLE_ID_PREFIX }.{ BQ_TABLE_NAME['github_release'] }"
+        github_pr_issue_table_id = f"{ TABLE_ID_PREFIX }.{ BQ_TABLE_NAME['github_pr_issue'] }"
         dockerhub_image_table_id = f"{ TABLE_ID_PREFIX }.{ BQ_TABLE_NAME['dockerhub_image'] }"
 
         # job_config
@@ -441,9 +529,24 @@ class DataFetcher:
             source_format=bigquery.SourceFormat.NEWLINE_DELIMITED_JSON,
         )
 
+        github_issue_pr_job_config = bigquery.LoadJobConfig(
+            schema=[
+                bigquery.SchemaField("repo", "STRING", mode="REQUIRED"),
+                bigquery.SchemaField("date", "DATE", mode="REQUIRED"),
+                bigquery.SchemaField("all_issue_count", "INTEGER", mode="REQUIRED"),
+                bigquery.SchemaField("open_issue_count", "INTEGER", mode="REQUIRED"),
+                bigquery.SchemaField("closed_issue_count", "INTEGER", mode="REQUIRED"),
+                bigquery.SchemaField("all_pr_count", "INTEGER", mode="REQUIRED"),
+                bigquery.SchemaField("open_pr_count", "INTEGER", mode="REQUIRED"),
+                bigquery.SchemaField("merged_pr_count", "INTEGER", mode="REQUIRED")
+            ],
+            source_format=bigquery.SourceFormat.NEWLINE_DELIMITED_JSON,
+        )
+
         # uri
         github_clone_uri = f"{ URI_PREFIX }/{ GCS_RECORD_NAME['github_clone'] }"
         github_release_uri = f"{ URI_PREFIX }/{ GCS_RECORD_NAME['github_release'] }"
+        github_issue_pr_uri = f"{ URI_PREFIX }/{ GCS_RECORD_NAME['github_issue_pr'] }"
         dockerhub_image_uri = f"{ URI_PREFIX }/{ GCS_RECORD_NAME['dockerhub_image'] }"
 
         print(f"[INFO] { datetime.datetime.now() } "
@@ -457,11 +560,15 @@ class DataFetcher:
             bq_client, github_release_uri, github_release_table_id,
             github_release_job_config)
 
+        j_issue = self.load_bigquery_from_gcs(
+            bq_client, github_issue_pr_uri, github_pr_issue_table_id,
+            github_release_job_config)
+
         j_docker = self.load_bigquery_from_gcs(
             bq_client, dockerhub_image_uri, dockerhub_image_table_id,
             dockerhub_image_job_config)
 
-        for job in (j_clone, j_rel, j_docker):
+        for job in (j_clone, j_rel, j_docker, j_issue):
             try:
                 job.result()
             except:
