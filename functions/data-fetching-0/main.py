@@ -417,8 +417,14 @@ class DataFetcher:
                     count=count, assets=assets)
                 github_release_list.append(f"{ json.dumps(github_release_record) }")
             for date, count in repo_dict.get('issues_and_pr', {}).items():
-                github_issue_and_pr_record = dict(count)
-                github_issue_and_pr_record.update(dict(date=date))
+                github_issue_and_pr_record = dict(
+                    all_issue_count=count['all_issue_count']['totalCount'],
+                    open_issue_count=count['open_issue_count']['totalCount'],
+                    closed_issue_count=count['closed_issue_count']['totalCount'],
+                    all_pr_count=count['all_pr_count']['totalCount'],
+                    open_pr_count=count['open_pr_count']['totalCount'],
+                    merged_pr_count=count['merged_pr_count']['totalCount'],
+                    repo=repo, date=date)
                 github_issue_pr_list.append(
                     f"{ json.dumps(github_issue_and_pr_record) }")
         if github_clone_list:
@@ -562,7 +568,7 @@ class DataFetcher:
 
         j_issue = self.load_bigquery_from_gcs(
             bq_client, github_issue_pr_uri, github_pr_issue_table_id,
-            github_release_job_config)
+            github_issue_pr_job_config)
 
         j_docker = self.load_bigquery_from_gcs(
             bq_client, dockerhub_image_uri, dockerhub_image_table_id,
