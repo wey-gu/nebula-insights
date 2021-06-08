@@ -19,7 +19,7 @@ data_fetch() will be the entrypoint of the trigerring:
    ┌─────────▼─────────┐       │           │                         │
    │                   │       │           │                         │
    │  Google BigQuery  │       │           └─────────────────────────┘
-   │                   │       ├───────────► ...                   
+   │                   │       ├───────────► ...
    └─────────▲─────────┘       │           ┌──────────────────┐
              │                 │           │                  │
              │                 └───────────►  Aliyun OSS API  │
@@ -506,7 +506,7 @@ class DataFetcher:
             ],
             source_format=bigquery.SourceFormat.NEWLINE_DELIMITED_JSON,
         )
-        # nested, referring to 
+        # nested, referring to
         # https://googleapis.dev/python/bigquery/latest/generated/\
         #         google.cloud.bigquery.schema.SchemaField.html
         github_release_job_config = bigquery.LoadJobConfig(

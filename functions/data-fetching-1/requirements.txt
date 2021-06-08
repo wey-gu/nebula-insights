@@ -1,0 +1,5 @@
+PyGithub
+google
+bigquery
+google-cloud-storage
+requests
