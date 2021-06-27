@@ -101,10 +101,15 @@ GH_REPO_EXCLUDE_LIST = [
     "nebula-chaos",
     "github-statistics",
     "nebula-community",
+    "nebula-clients",
+    "nebula-gears",
     ".github"
 ]
 
 MERGED_TEMPLATE = "repo:{org}/{repo} is:pr merged:{left}..{right}"
+
+CREATED_OPEN_TEMPLATE = "repo:{org}/{repo} is:issue is:open created:{left}..{right}"
+CREATED_CLOSED_TEMPLATE = "repo:{org}/{repo} is:issue is:closed closed:{left}..{right}"
 
 REPORT_REPO = "nebula-community"
 
@@ -126,6 +131,9 @@ class DataFetcher:
         self.internal_contributors = {}
         self.external_pull_requests = {}
         self.internal_pull_requests = {}
+        self.open_issues = {}
+        self.closed_issues = {}
+        self.report_body = []
         self.team_members = set()
         self.s_client = storage.Client()
         self.bucket = self.s_client.get_bucket(BUCKET)
@@ -151,14 +159,15 @@ class DataFetcher:
             time.gmtime()) + 5  # add 5 sec to ensure the rate limit has been reset
         return sleep_time
 
-    def get_data(self):
+    def get_data(self, left=None, right=None):
         """from github API, dockerhub API, etc."""
 
         print(f"[INFO] { datetime.datetime.now() } "
               f"Started fetching data from github")
-        yesterday = str(self.get_yesterday())
-        today = str(datetime.datetime.now().date())
-        self.get_data_from_github(yesterday, today)
+        if left is None:
+            left = str(self.get_yesterday())
+            right = str(datetime.datetime.now().date())
+        self.get_data_from_github(left, right)
 
     def get_data_from_github(self, left=None, right=None):
 
@@ -178,6 +187,7 @@ class DataFetcher:
             if repo.name not in GH_REPO_EXCLUDE_LIST:
                 self.get_github_contributors(g, org_str, repo, left, right,
                     excluded_members=self.team_members)
+                self.get_issues(g, org_str, repo, left, right)
         if not self.all_external_contributors:
             pass  # need to wire the notification here
 
@@ -238,7 +248,7 @@ class DataFetcher:
                 timeIndex = None
                 break  # loop end
             except RateLimitExceededException:
-                sleep_time = get_sleep_time(gh)
+                sleep_time = self.get_github_sleep_time(gh)
                 if DEBUG:
                     print(f"[DEBUG] RateLimitExceeded, sleep {sleep_time} sec")
                 time.sleep(sleep_time)
@@ -269,6 +279,71 @@ class DataFetcher:
                     print(f"{contributor_login} contributors[contributor_login].contributions: {contributors[contributor_login].contributions}")
                 return True
         return False
+
+    def get_issues(self, gh, orgName, repo, left, right):
+        open_issue = iter(gh.search_issues(CREATED_OPEN_TEMPLATE.format(
+                org=orgName,
+                repo=repo.name,
+                left=left,
+                right=right),
+            "created", "desc"))
+        closed_issue = iter(gh.search_issues(CREATED_CLOSED_TEMPLATE.format(
+                org=orgName,
+                repo=repo.name,
+                left=left,
+                right=right),
+            "created", "desc"))
+
+        timeIndex = None
+        open_issues = []
+        closed_issues = []
+        while True:
+            try:
+                issue = next(open_issue)
+                if DEBUG:
+                    print(f"[DEBUG] issue fetched: {issue}")
+                issue_record = {
+                    "title": issue.title,
+                    "user": issue.user.login,
+                    "number": issue.number,
+                    "created_at": str(issue.created_at),
+                    "closed_at": "",
+                    "closed_by": ""
+                }
+                open_issues.append(issue_record)
+            except StopIteration:
+                break  # loop end
+            except RateLimitExceededException:
+                sleep_time = get_sleep_time(gh)
+                if DEBUG:
+                    print(f"[DEBUG] RateLimitExceeded, sleep {sleep_time} sec")
+                time.sleep(sleep_time)
+                continue
+
+        while True:
+            try:
+                issue = next(closed_issue)
+                if DEBUG:
+                    print(f"[DEBUG] issue fetched: {issue}")
+                issue_record = {
+                    "title": issue.title,
+                    "user": issue.user.login,
+                    "number": issue.number,
+                    "created_at": str(issue.created_at),
+                    "closed_at": str(issue.closed_at),
+                    "closed_by": issue.closed_by.login
+                }
+                closed_issues.append(issue_record)
+            except StopIteration:
+                break  # loop end
+            except RateLimitExceededException:
+                sleep_time = get_sleep_time(gh)
+                if DEBUG:
+                    print(f"[DEBUG] RateLimitExceeded, sleep {sleep_time} sec")
+                time.sleep(sleep_time)
+                continue
+        self.open_issues[repo.name] = open_issues
+        self.closed_issues[repo.name] = closed_issues
 
     def get_github_contributors(self, gh, orgName, repo, left, right,
             excluded_members=None):
@@ -318,6 +393,9 @@ class DataFetcher:
     def get_yesterday(self):
         return (datetime.datetime.now() - datetime.timedelta(1)).date()
 
+    def get_lastweekday(self):
+        return (datetime.datetime.now() - datetime.timedelta(7)).date()
+
     def archive_github_data(self, folder):
         self.save_str_to_gcs_ascii(
             bucket=self.bucket,
@@ -352,67 +430,297 @@ class DataFetcher:
         )  # Make an API request.
         return load_job
 
-    # def load_data(self, record_folder):
-    #     """
-    #     load files like:
-    #         gs://nebula-insights/records/2021-04-21/github_release_stats.json
-    #         gs://nebula-insights/records/2021-04-21/github_clone_stats.json
-    #         gs://nebula-insights/records/2021-04-21/dockerhub_image_stats.json
-    #     """
-    #     self.get_sink_credential()
-
-    #     # Construct a BigQuery client object.
-    #     bq_client = bigquery.Client()
-    #     TABLE_ID_PREFIX = f"{ GCP_PROJECT }.{ BQ_DATASET }"
-    #     URI_PREFIX = f"gs://{ BUCKET }/{ record_folder }"
-
-    #     # table_id
-    #     table_id = f"{ TABLE_ID_PREFIX }.{ BQ_TABLE_NAME['github_clone'] }"
-
-    #     # job_config
-
-    #     # nested, referring to
-    #     # https://googleapis.dev/python/bigquery/latest/generated/\
-    #     #         google.cloud.bigquery.schema.SchemaField.html
-    #     job_config = bigquery.LoadJobConfig(
-    #         schema=[
-    #             bigquery.SchemaField("repo", "STRING", mode="REQUIRED"),
-    #             bigquery.SchemaField("date", "DATE", mode="REQUIRED"),
-    #             bigquery.SchemaField("count", "INTEGER", mode="REQUIRED"),
-    #             bigquery.SchemaField("tag", "STRING", mode="REQUIRED"),
-    #             bigquery.SchemaField(
-    #                 "assets", "RECORD", mode="REPEATED",
-    #                 fields=[
-    #                     bigquery.SchemaField("name", "STRING", mode="REQUIRED"),
-    #                     bigquery.SchemaField("url", "STRING", mode="REQUIRED"),
-    #                     bigquery.SchemaField("count", "INTEGER", mode="REQUIRED"),
-    #                     ])
-    #         ],
-    #         source_format=bigquery.SourceFormat.NEWLINE_DELIMITED_JSON,
-    #     )
-
-    #     # uri
-    #     gcs_uri = f"{ URI_PREFIX }/{ GCS_RECORD_NAME['github_clone'] }"
-
-    #     print(f"[INFO] { datetime.datetime.now() } "
-    #           f"Started data loading to BigQuery")
-
-    #     job = self.load_bigquery_from_gcs(
-    #         bq_client, gcs_uri, table_id, job_config)
-
-    #     try:
-    #         job.result()
-    #     except:
-    #         print(f"[ERROR] { datetime.datetime.now() } "
-    #               f"Failed during data loading to BigQuery: { job.errors }")
-
-
     def send_issue(self):
-        label = self.report_repo.get_label("Weekly Report")
-        self.report_repo.create_issue(
-            title=f"Weekly Report {datetime.datetime.now().date()}",
-            body="",  # To Be added
-            labels=[label])
+        if self.report_repo:
+            # TBD: add label
+            # label = self.report_repo.get_label("Weekly Report")
+            self.report_repo.create_issue(
+                title=f"Weekly Report {datetime.datetime.now().date()}",
+                body=self.report_body
+                # labels=[label]) TBD: add label from the repo
+                )
+        else:
+            print("[WARN] report repo was not fetched...")
+
+    def generate_report(self):
+        """
+        Generation of .md report
+        """
+
+        # Weekly Report of Nebula Graph Community
+
+        body = []
+        body.append("# Weekly Report of Nebula Graph Community\n")
+
+        ## Contributors # tbd: diff_hunk https://github.com/PyGithub/PyGithub/blob/babcbcd04fd5605634855f621b8558afc5cbc515/github/PullRequestComment.py
+        contributions_headers = (
+            "| Repo | Author | PR   |\n"
+            "| ---- | ------ | ---- |"
+            )
+        body.append("## Contributions Summary\n")
+        ### New Contributors
+        all_new_contributors = [
+            (repo, author, f"[#{issue.split('/')[-1]}]({issue})")
+            for repo, repo_dict in self.new_contributors.items()
+            for author, issues in repo_dict.items()
+            for issue in list(issues)
+        ]
+        if all_new_contributors:
+            body.append("### New Contributors\n")
+            body.append("> Note, new contributor means first merged PR in its repo.\n")
+            # TBD, add count
+            body.append(contributions_headers)
+            for row in all_new_contributors:
+                body.append(f"| {'| '.join(row)} |")
+            body.append("\n")
+            body.append(
+                f"> Total New Contributors' PR of the Week: "
+                f"`{ len(all_new_contributors) }`\n")
+
+        ### All nForce Contributors
+        all_nforce_contributors = [
+            (repo, author, f"[#{issue.split('/')[-1]}]({issue})")
+            for repo, repo_dict in self.internal_contributors.items()
+            for author, issues in repo_dict.items()
+            for issue in list(issues)
+        ]
+
+        if all_nforce_contributors:
+            body.append("### nForce Contributions\n")
+            # TBD, add count
+            body.append(contributions_headers)
+            for row in all_nforce_contributors:
+                body.append(f"| {'| '.join(row)} |")
+            body.append("\n")
+            body.append(
+                f"> Total nForce Contributors' PR of the Week: "
+                f"`{ len(all_nforce_contributors) }`\n")
+
+        ### All community Contributors
+        all_external_contributors = [
+            (repo, author, f"[#{issue.split('/')[-1]}]({issue})")
+            for repo, repo_dict in self.all_external_contributors.items()
+            for author, issues in repo_dict.items()
+            for issue in list(issues)
+        ]
+
+        if all_external_contributors:
+            body.append("### Community Contributions\n")
+            # TBD, add count
+            body.append(contributions_headers)
+            for row in all_external_contributors:
+                body.append(f"| {'| '.join(row)} |")
+            body.append("\n")
+            body.append(
+                f"> Total external Contributors' PR of the Week: "
+                f"`{ len(all_external_contributors) }`\n")
+
+        if not any((
+                all_new_contributors,
+                all_nforce_contributors,
+                all_external_contributors)):
+            body.append("> There is no contributions...\n")
+
+        ## ISSUE Summary
+
+        body.append("## Issue Summary")
+
+        ### Open Issues of the Week
+        open_issue_headers = (
+            "| Repo | Author | ISSUE | Created At   |\n"
+            "| ---- | ------ | ----- | ------------ |"
+            )
+        if any(self.open_issues.values()):
+            body.append("### Open Issues of the Week\n")
+            # TBD, add count
+            body.append(open_issue_headers)
+            for repo, issues in self.open_issues.items():
+                url = f"https://github.com/{GH_ORG}/{repo}/issues/"
+                for issue in issues:
+                    body.append(
+                        f"| {repo} | {issue['user']} | "
+                        f"[#{issue['number']}]({url}{issue['number']}) | "
+                        f"{issue['created_at']} |")
+            body.append("\n")
+            body.append(
+                f"> Total Open issues of the Week: "
+                f"`{ len(self.open_issues.items()) }`\n")
+        else:
+            body.append("> There is no open issues...\n")
+
+        ### Closed Issues of the Week
+        closed_issue_headers = (
+            "| Repo | Author | ISSUE | Created At   | Closed At   |\n"
+            "| ---- | ------ | ----- | ------------ | ------------ |"
+            )
+        if any(self.closed_issues.values()):
+            body.append("### Closed Issues of the Week\n")
+            # TBD, add count
+            body.append(closed_issue_headers)
+            for repo, issues in self.closed_issues.items():
+                url = f"https://github.com/{GH_ORG}/{repo}/issues/"
+                for issue in issues:
+                    body.append(
+                        f"| {repo} | {issue['user']} | "
+                        f"[#{issue['number']}]({url}{issue['number']}) | "
+                        f"{issue['created_at']} | "
+                        f"{issue['closed_at']} |")
+            body.append("\n")
+            body.append(
+                f"> Total Closed issues of the Week: "
+                f"`{ len(self.closed_issues.items()) }`\n")
+        else:
+            body.append("> There is no closed issues...\n")
+
+        ########### BigQuery Started
+        bq_client = bigquery.Client()
+        left = self.get_lastweekday()
+        right = self.get_yesterday()
+        #--------------------- async calling -------------------
+
+        ## Release Stats
+        github_release_query = (
+            f"DECLARE start_date, end_date DATE;"
+            f"SET start_date = DATE({left.year}, {left.month}, {left.day});"
+            f"SET end_date = DATE({right.year}, {right.month}, {right.day});"
+            f"SELECT repo, date, tag, count "
+            f"FROM `nebula-insights.nebula_insights.github_release_records` "
+            f"WHERE date in (start_date, end_date);"
+            )
+        github_release_query_job = bq_client.query(github_release_query)
+
+        ## Clone Stats
+        github_clone_query = (
+            f"DECLARE start_date, end_date DATE;"
+            f"SET start_date = DATE({left.year}, {left.month}, {left.day});"
+            f"SET end_date = DATE({right.year}, {right.month}, {right.day});"
+            f"SELECT * "
+            f"FROM `nebula-insights.nebula_insights.github_clone_records` "
+            f"WHERE date between start_date and end_date;"
+            )
+        github_clone_query_job = bq_client.query(github_clone_query)
+
+        ## Docker Hub Stats
+
+        dockerhub_image_query = (
+            f"DECLARE start_date, end_date DATE;"
+            f"SET start_date = DATE({left.year}, {left.month}, {left.day});"
+            f"SET end_date = DATE({right.year}, {right.month}, {right.day});"
+            f"SELECT * "
+            f"FROM `nebula-insights.nebula_insights.dockerhub_image_records` "
+            f"WHERE date in (start_date, end_date);"
+            )
+        dockerhub_image_query_job = bq_client.query(dockerhub_image_query)
+
+        #--------------------- async calling -------------------
+        ## Release Stats
+        release_headers = (
+            f"| Repo | Tag  | {left} | {right} | Incrementation |\n"
+            f"| ---- | ---  | ------ | ------- | -------------- |"
+            )
+        body.append("## Release Assets Download Statistics of the Week\n")
+        body.append(release_headers)
+        release_data = {}
+        release_sum = 0
+
+        for row in github_release_query_job.result():
+            if row.repo in GH_REPO_EXCLUDE_LIST:
+                continue
+            default_tag = {
+                    row.tag: {
+                        str(left): 0,
+                        str(right): 0
+                    }
+                }
+            if row.repo not in release_data:
+                release_data[row.repo] = dict(default_tag)
+            if row.tag not in release_data[row.repo]:
+                release_data[row.repo].update(default_tag)
+            release_data[row.repo][row.tag][str(row.date)] = row.count
+        for repo, repo_value in release_data.items():
+            for tag, count in repo_value.items():
+                if count[str(right)] - count[str(left)] <= 0:
+                    continue
+                release_sum += count[str(right)] - count[str(left)]
+                body.append(
+                    f"| {repo} | {tag}| "
+                    f"{count[str(left)]} | {count[str(right)]}| "
+                    f"{count[str(right)] - count[str(left)]}|")
+        body.append("\n")
+        body.append(
+            f"> Github Release Assents Download Count of the Week: "
+            f"`{ release_sum }`\n")
+
+        ## Clone Stats
+        dates = list(
+            (str(left + datetime.timedelta(delta)) for delta in range(7)))
+        date_headers = "|".join(dates)
+        clone_headers = (
+            f"| Repo | { date_headers }          | SUM |\n"
+            f"| ---- | { '-|'*(len(dates)-1) } - | -------------- |"
+            )
+        body.append("## Clone Statistics of the Week\n")
+        body.append(clone_headers)
+        clone_data = {}
+        clone_sum = 0
+
+        for row in github_clone_query_job.result():
+            if row.repo in GH_REPO_EXCLUDE_LIST:
+                continue
+            if row.repo not in clone_data:
+                clone_data[row.repo] = dict((d, 0) for d in dates)
+            clone_data[row.repo][str(row.date)] = row.count
+
+        for repo, count in clone_data.items():
+            count_values = "|".join(
+                (str(count[d]) for d in dates))
+            if sum(count.values()) == 0:
+                continue
+            clone_sum += sum(count.values())
+            body.append(
+                f"| {repo} | "
+                f"{ count_values } | "
+                f"{sum(count.values())}|")
+        body.append("\n")
+        body.append(
+            f"> Github Clone Count of the Week: "
+            f"`{ clone_sum }`\n")
+
+        ## Docker Hub Stats
+        docker_headers = (
+            f"| Repo | {left} | {right} | Incrementation |\n"
+            f"| ---- | ------ | ------- | -------------- |"
+            )
+        body.append("## Docker Hub Image Pull Count Statistics of the Week\n")
+        body.append(docker_headers)
+        docker_data = {}
+        docker_sum = 0
+        for row in dockerhub_image_query_job.result():
+            if row.image in GH_REPO_EXCLUDE_LIST:
+                continue
+            default_value = {str(left): 0, str(right): 0}
+            if row.image not in docker_data:
+                docker_data[row.image] = dict(default_value)
+            docker_data[row.image][str(row.date)] = row.pull_count
+        for repo, count in docker_data.items():
+            if count[str(right)] - count[str(left)] <= 0:
+                continue
+            docker_sum += count[str(right)] - count[str(left)]
+            body.append(
+                f"| {repo} | "
+                f"{count[str(left)]} | {count[str(right)]}| "
+                f"{count[str(right)] - count[str(left)]}|")
+        body.append("\n")
+        body.append(
+            f"> Docker Hub Image Pull Count of the Week: "
+            f"`{ docker_sum }`\n")
+
+        ## Docker Hub Stats end
+
+        ########### BigQuery Ended
+        if DEBUG:
+            print("\n".join(body))
+        self.report_body = "\n".join(body)
 
 def data_fetch(event, context):
     """Triggered from a message on a Cloud Pub/Sub topic.
@@ -422,10 +730,16 @@ def data_fetch(event, context):
     """
     # pubsub_message = base64.b64decode(event['data']).decode('utf-8')
 
-    dafa_fetcher = DataFetcher()
+    # weekly report
+    if datetime.date.today().weekday() == 5:
+        weekly_report = DataFetcher()
+        weekly_report.get_data(
+            left=str(weekly_report.get_lastweekday()),
+            right=str(weekly_report.get_yesterday()))
+        weekly_report.generate_report()
+        weekly_report.send_issue()
 
-    dafa_fetcher.get_data()
-
-    record_folder = dafa_fetcher.archive_data()
-
-    # dafa_fetcher.load_data(record_folder)
+    # daily data
+    data_fetcher = DataFetcher()
+    data_fetcher.get_data()
+    record_folder = data_fetcher.archive_data()
