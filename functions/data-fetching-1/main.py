@@ -572,148 +572,149 @@ class DataFetcher:
         else:
             body.append("> There is no closed issues...\n")
 
-        ########### BigQuery Started
-        bq_client = bigquery.Client()
-        left = self.get_lastweekday()
-        right = self.get_yesterday()
-        #--------------------- async calling -------------------
+        # This should not be published
+        # ########### BigQuery Started
+        # bq_client = bigquery.Client()
+        # left = self.get_lastweekday()
+        # right = self.get_yesterday()
+        # #--------------------- async calling -------------------
 
-        ## Release Stats
-        github_release_query = (
-            f"DECLARE start_date, end_date DATE;"
-            f"SET start_date = DATE({left.year}, {left.month}, {left.day});"
-            f"SET end_date = DATE({right.year}, {right.month}, {right.day});"
-            f"SELECT repo, date, tag, count "
-            f"FROM `nebula-insights.nebula_insights.github_release_records` "
-            f"WHERE date in (start_date, end_date);"
-            )
-        github_release_query_job = bq_client.query(github_release_query)
+        # ## Release Stats
+        # github_release_query = (
+        #     f"DECLARE start_date, end_date DATE;"
+        #     f"SET start_date = DATE({left.year}, {left.month}, {left.day});"
+        #     f"SET end_date = DATE({right.year}, {right.month}, {right.day});"
+        #     f"SELECT repo, date, tag, count "
+        #     f"FROM `nebula-insights.nebula_insights.github_release_records` "
+        #     f"WHERE date in (start_date, end_date);"
+        #     )
+        # github_release_query_job = bq_client.query(github_release_query)
 
-        ## Clone Stats
-        github_clone_query = (
-            f"DECLARE start_date, end_date DATE;"
-            f"SET start_date = DATE({left.year}, {left.month}, {left.day});"
-            f"SET end_date = DATE({right.year}, {right.month}, {right.day});"
-            f"SELECT * "
-            f"FROM `nebula-insights.nebula_insights.github_clone_records` "
-            f"WHERE date between start_date and end_date;"
-            )
-        github_clone_query_job = bq_client.query(github_clone_query)
+        # ## Clone Stats
+        # github_clone_query = (
+        #     f"DECLARE start_date, end_date DATE;"
+        #     f"SET start_date = DATE({left.year}, {left.month}, {left.day});"
+        #     f"SET end_date = DATE({right.year}, {right.month}, {right.day});"
+        #     f"SELECT * "
+        #     f"FROM `nebula-insights.nebula_insights.github_clone_records` "
+        #     f"WHERE date between start_date and end_date;"
+        #     )
+        # github_clone_query_job = bq_client.query(github_clone_query)
 
-        ## Docker Hub Stats
+        # ## Docker Hub Stats
 
-        dockerhub_image_query = (
-            f"DECLARE start_date, end_date DATE;"
-            f"SET start_date = DATE({left.year}, {left.month}, {left.day});"
-            f"SET end_date = DATE({right.year}, {right.month}, {right.day});"
-            f"SELECT * "
-            f"FROM `nebula-insights.nebula_insights.dockerhub_image_records` "
-            f"WHERE date in (start_date, end_date);"
-            )
-        dockerhub_image_query_job = bq_client.query(dockerhub_image_query)
+        # dockerhub_image_query = (
+        #     f"DECLARE start_date, end_date DATE;"
+        #     f"SET start_date = DATE({left.year}, {left.month}, {left.day});"
+        #     f"SET end_date = DATE({right.year}, {right.month}, {right.day});"
+        #     f"SELECT * "
+        #     f"FROM `nebula-insights.nebula_insights.dockerhub_image_records` "
+        #     f"WHERE date in (start_date, end_date);"
+        #     )
+        # dockerhub_image_query_job = bq_client.query(dockerhub_image_query)
 
-        #--------------------- async calling -------------------
-        ## Release Stats
-        release_headers = (
-            f"| Repo | Tag  | {left} | {right} | Incrementation |\n"
-            f"| ---- | ---  | ------ | ------- | -------------- |"
-            )
-        body.append("## Release Assets Download Statistics of the Week\n")
-        body.append(release_headers)
-        release_data = {}
-        release_sum = 0
+        # #--------------------- async calling -------------------
+        # ## Release Stats
+        # release_headers = (
+        #     f"| Repo | Tag  | {left} | {right} | Incrementation |\n"
+        #     f"| ---- | ---  | ------ | ------- | -------------- |"
+        #     )
+        # body.append("## Release Assets Download Statistics of the Week\n")
+        # body.append(release_headers)
+        # release_data = {}
+        # release_sum = 0
 
-        for row in github_release_query_job.result():
-            if row.repo in GH_REPO_EXCLUDE_LIST:
-                continue
-            default_tag = {
-                    row.tag: {
-                        str(left): 0,
-                        str(right): 0
-                    }
-                }
-            if row.repo not in release_data:
-                release_data[row.repo] = dict(default_tag)
-            if row.tag not in release_data[row.repo]:
-                release_data[row.repo].update(default_tag)
-            release_data[row.repo][row.tag][str(row.date)] = row.count
-        for repo, repo_value in release_data.items():
-            for tag, count in repo_value.items():
-                if count[str(right)] - count[str(left)] <= 0:
-                    continue
-                release_sum += count[str(right)] - count[str(left)]
-                body.append(
-                    f"| {repo} | {tag}| "
-                    f"{count[str(left)]} | {count[str(right)]}| "
-                    f"{count[str(right)] - count[str(left)]}|")
-        body.append("\n")
-        body.append(
-            f"> Github Release Assents Download Count of the Week: "
-            f"`{ release_sum }`\n")
+        # for row in github_release_query_job.result():
+        #     if row.repo in GH_REPO_EXCLUDE_LIST:
+        #         continue
+        #     default_tag = {
+        #             row.tag: {
+        #                 str(left): 0,
+        #                 str(right): 0
+        #             }
+        #         }
+        #     if row.repo not in release_data:
+        #         release_data[row.repo] = dict(default_tag)
+        #     if row.tag not in release_data[row.repo]:
+        #         release_data[row.repo].update(default_tag)
+        #     release_data[row.repo][row.tag][str(row.date)] = row.count
+        # for repo, repo_value in release_data.items():
+        #     for tag, count in repo_value.items():
+        #         if count[str(right)] - count[str(left)] <= 0:
+        #             continue
+        #         release_sum += count[str(right)] - count[str(left)]
+        #         body.append(
+        #             f"| {repo} | {tag}| "
+        #             f"{count[str(left)]} | {count[str(right)]}| "
+        #             f"{count[str(right)] - count[str(left)]}|")
+        # body.append("\n")
+        # body.append(
+        #     f"> Github Release Assents Download Count of the Week: "
+        #     f"`{ release_sum }`\n")
 
-        ## Clone Stats
-        dates = list(
-            (str(left + datetime.timedelta(delta)) for delta in range(7)))
-        date_headers = "|".join(dates)
-        clone_headers = (
-            f"| Repo | { date_headers }          | SUM |\n"
-            f"| ---- | { '-|'*(len(dates)-1) } - | -------------- |"
-            )
-        body.append("## Clone Statistics of the Week\n")
-        body.append(clone_headers)
-        clone_data = {}
-        clone_sum = 0
+        # ## Clone Stats
+        # dates = list(
+        #     (str(left + datetime.timedelta(delta)) for delta in range(7)))
+        # date_headers = "|".join(dates)
+        # clone_headers = (
+        #     f"| Repo | { date_headers }          | SUM |\n"
+        #     f"| ---- | { '-|'*(len(dates)-1) } - | -------------- |"
+        #     )
+        # body.append("## Clone Statistics of the Week\n")
+        # body.append(clone_headers)
+        # clone_data = {}
+        # clone_sum = 0
 
-        for row in github_clone_query_job.result():
-            if row.repo in GH_REPO_EXCLUDE_LIST:
-                continue
-            if row.repo not in clone_data:
-                clone_data[row.repo] = dict((d, 0) for d in dates)
-            clone_data[row.repo][str(row.date)] = row.count
+        # for row in github_clone_query_job.result():
+        #     if row.repo in GH_REPO_EXCLUDE_LIST:
+        #         continue
+        #     if row.repo not in clone_data:
+        #         clone_data[row.repo] = dict((d, 0) for d in dates)
+        #     clone_data[row.repo][str(row.date)] = row.count
 
-        for repo, count in clone_data.items():
-            count_values = "|".join(
-                (str(count[d]) for d in dates))
-            if sum(count.values()) == 0:
-                continue
-            clone_sum += sum(count.values())
-            body.append(
-                f"| {repo} | "
-                f"{ count_values } | "
-                f"{sum(count.values())}|")
-        body.append("\n")
-        body.append(
-            f"> Github Clone Count of the Week: "
-            f"`{ clone_sum }`\n")
+        # for repo, count in clone_data.items():
+        #     count_values = "|".join(
+        #         (str(count[d]) for d in dates))
+        #     if sum(count.values()) == 0:
+        #         continue
+        #     clone_sum += sum(count.values())
+        #     body.append(
+        #         f"| {repo} | "
+        #         f"{ count_values } | "
+        #         f"{sum(count.values())}|")
+        # body.append("\n")
+        # body.append(
+        #     f"> Github Clone Count of the Week: "
+        #     f"`{ clone_sum }`\n")
 
-        ## Docker Hub Stats
-        docker_headers = (
-            f"| Repo | {left} | {right} | Incrementation |\n"
-            f"| ---- | ------ | ------- | -------------- |"
-            )
-        body.append("## Docker Hub Image Pull Count Statistics of the Week\n")
-        body.append(docker_headers)
-        docker_data = {}
-        docker_sum = 0
-        for row in dockerhub_image_query_job.result():
-            if row.image in GH_REPO_EXCLUDE_LIST:
-                continue
-            default_value = {str(left): 0, str(right): 0}
-            if row.image not in docker_data:
-                docker_data[row.image] = dict(default_value)
-            docker_data[row.image][str(row.date)] = row.pull_count
-        for repo, count in docker_data.items():
-            if count[str(right)] - count[str(left)] <= 0:
-                continue
-            docker_sum += count[str(right)] - count[str(left)]
-            body.append(
-                f"| {repo} | "
-                f"{count[str(left)]} | {count[str(right)]}| "
-                f"{count[str(right)] - count[str(left)]}|")
-        body.append("\n")
-        body.append(
-            f"> Docker Hub Image Pull Count of the Week: "
-            f"`{ docker_sum }`\n")
+        # ## Docker Hub Stats
+        # docker_headers = (
+        #     f"| Repo | {left} | {right} | Incrementation |\n"
+        #     f"| ---- | ------ | ------- | -------------- |"
+        #     )
+        # body.append("## Docker Hub Image Pull Count Statistics of the Week\n")
+        # body.append(docker_headers)
+        # docker_data = {}
+        # docker_sum = 0
+        # for row in dockerhub_image_query_job.result():
+        #     if row.image in GH_REPO_EXCLUDE_LIST:
+        #         continue
+        #     default_value = {str(left): 0, str(right): 0}
+        #     if row.image not in docker_data:
+        #         docker_data[row.image] = dict(default_value)
+        #     docker_data[row.image][str(row.date)] = row.pull_count
+        # for repo, count in docker_data.items():
+        #     if count[str(right)] - count[str(left)] <= 0:
+        #         continue
+        #     docker_sum += count[str(right)] - count[str(left)]
+        #     body.append(
+        #         f"| {repo} | "
+        #         f"{count[str(left)]} | {count[str(right)]}| "
+        #         f"{count[str(right)] - count[str(left)]}|")
+        # body.append("\n")
+        # body.append(
+        #     f"> Docker Hub Image Pull Count of the Week: "
+        #     f"`{ docker_sum }`\n")
 
         ## Docker Hub Stats end
 
