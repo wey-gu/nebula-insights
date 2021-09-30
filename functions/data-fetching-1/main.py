@@ -181,6 +181,8 @@ class DataFetcher:
         team_id = int(self.conf.get("team_id"))
         self.get_team_members(org, team_id)
         for repo in repos:
+            if repo.private:
+                continue
             repo_key = f"{ org.login }/{ repo.name }"
             if repo.name == REPORT_REPO:
                 self.report_repo = repo
