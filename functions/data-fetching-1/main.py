@@ -234,11 +234,10 @@ class DataFetcher:
             except StopIteration:
                 if DEBUG:
                     print(f"[DEBUG] exception StopIteration hit\n")
-                today = datetime.date.today().strftime('%Y-%m-%d')
                 if timeIndex and timeIndex >= datetime.datetime.strptime(
                         left, '%Y-%m-%d') \
-                        and timeIndex <= datetime.datetime.strptime(
-                            today, '%Y-%m-%d'):
+                        and timeIndex < datetime.datetime.strptime(
+                            right, '%Y-%m-%d'):
                     newStartTime = timeIndex + datetime.timedelta(days=1)
                     if DEBUG:
                         print(f"[DEBUG] newStartTime: {newStartTime}")
@@ -432,15 +431,13 @@ class DataFetcher:
         )  # Make an API request.
         return load_job
 
-    def send_issue(self):
+    def send_issue(self, right=datetime.datetime.now().date()):
         if self.report_repo:
-            # TBD: add label
-            # label = self.report_repo.get_label("Weekly Report")
+            label = self.report_repo.get_label("weekly report")
             self.report_repo.create_issue(
-                title=f"Weekly Report {datetime.datetime.now().date()}",
-                body=self.report_body
-                # labels=[label]) TBD: add label from the repo
-                )
+                title=f"Weekly Report {right}",
+                body=self.report_body,
+                labels=[label])
         else:
             print("[WARN] report repo was not fetched...")
 
@@ -514,7 +511,7 @@ class DataFetcher:
                 body.append(f"| {'| '.join(row)} |")
             body.append("\n")
             body.append(
-                f"> Total external Contributors' PR of the Week: "
+                f"> Total Community Contributors' PR of the Week: "
                 f"`{ len(all_external_contributors) }`\n")
 
         if not any((
@@ -733,14 +730,25 @@ def data_fetch(event, context):
     """
     # pubsub_message = base64.b64decode(event['data']).decode('utf-8')
 
-    # weekly report
-    if datetime.date.today().weekday() == 5:
-        weekly_report = DataFetcher()
-        weekly_report.get_data(
-            left=str(weekly_report.get_lastweekday()),
-            right=str(weekly_report.get_yesterday()))
+    # debug in CLI:
+    # DATA=$(printf '{"report_true": "True", "report_left": "2021-09-19", "report_right": "2021-09-25", "report_true": "True"}' | base64)
+    # gcloud functions call the-function --data '{"data":"'$DATA'"}'
+
+    weekly_report = DataFetcher()
+    if 'data' in event:
+        payload = json.loads(base64.b64decode(event['data']).decode('utf-8'))
+        left = payload.get("report_left", str(weekly_report.get_lastweekday()))
+        right = payload.get("report_right", str(weekly_report.get_yesterday()))
+        send_report = payload.get("report_true", False) or \
+            datetime.date.today().weekday() == 5
+        global DEBUG
+        DEBUG = bool(payload.get("debug_true", DEBUG))
+
+    # report
+    if send_report:
+        weekly_report.get_data(left=left, right=right)
         weekly_report.generate_report()
-        weekly_report.send_issue()
+        weekly_report.send_issue(right=right)
 
     # daily data
     data_fetcher = DataFetcher()
