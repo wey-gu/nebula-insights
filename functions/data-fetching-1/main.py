@@ -735,14 +735,18 @@ def data_fetch(event, context):
     # gcloud functions call the-function --data '{"data":"'$DATA'"}'
 
     weekly_report = DataFetcher()
+    send_report = datetime.date.today().weekday() == 5
+    left = str(weekly_report.get_lastweekday())
+    right = str(weekly_report.get_yesterday())
     if 'data' in event:
-        payload = json.loads(base64.b64decode(event['data']).decode('utf-8'))
-        left = payload.get("report_left", str(weekly_report.get_lastweekday()))
-        right = payload.get("report_right", str(weekly_report.get_yesterday()))
-        send_report = payload.get("report_true", False) or \
-            datetime.date.today().weekday() == 5
-        global DEBUG
-        DEBUG = bool(payload.get("debug_true", DEBUG))
+        decoded_data = base64.b64decode(event['data']).decode('utf-8')
+        if decoded_data and isinstance(json.loads(decoded_data), dict):
+            payload = json.loads(decoded_data)
+            left = payload.get("report_left", left)
+            right = payload.get("report_right", right)
+            send_report = payload.get("report_true", False) or send_report
+            global DEBUG
+            DEBUG = bool(payload.get("debug_true", DEBUG))
 
     # report
     if send_report:
