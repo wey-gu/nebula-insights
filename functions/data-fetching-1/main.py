@@ -134,7 +134,7 @@ class DataFetcher:
         self.open_issues = {}
         self.closed_issues = {}
         self.report_body = []
-        self.team_members = set()
+        self.org_members = set()
         self.s_client = storage.Client()
         self.bucket = self.s_client.get_bucket(BUCKET)
         self.parse_conf()
@@ -178,8 +178,7 @@ class DataFetcher:
         org_str = self.conf.get("github_orgnization", GH_ORG)
         org = g.get_organization(org_str)
         repos = org.get_repos()
-        team_id = int(self.conf.get("team_id"))
-        self.get_team_members(org, team_id)
+        self.get_members(org)
         for repo in repos:
             if repo.private:
                 continue
@@ -188,16 +187,15 @@ class DataFetcher:
                 self.report_repo = repo
             if repo.name not in GH_REPO_EXCLUDE_LIST:
                 self.get_github_contributors(g, org_str, repo, left, right,
-                    excluded_members=self.team_members)
+                    excluded_members=self.org_members)
                 self.get_issues(g, org_str, repo, left, right)
         if not self.all_external_contributors:
             pass  # need to wire the notification here
 
-    def get_team_members(self, org, team_id):
-        team = org.get_team(team_id)
-        members = team.get_members()
+    def get_members(self, org):
+        members = org.get_members()
         for member in members:
-            self.team_members.add(member.id)
+            self.org_members.add(member.id)
 
     def get_contributors(self, gh, orgName, repo, left, right,
             excluded_members=None):
