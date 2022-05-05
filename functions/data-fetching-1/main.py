@@ -330,7 +330,7 @@ class DataFetcher:
                     "number": issue.number,
                     "created_at": str(issue.created_at),
                     "closed_at": str(issue.closed_at),
-                    "closed_by": issue.closed_by.login
+                    "closed_by": issue.closed_by.login if issue.closed_by else ""
                 }
                 closed_issues.append(issue_record)
             except StopIteration:
@@ -729,8 +729,8 @@ def data_fetch(event, context):
     # pubsub_message = base64.b64decode(event['data']).decode('utf-8')
 
     # debug in CLI:
-    # DATA=$(printf '{"report_true": "True", "report_left": "2021-09-19", "report_right": "2021-09-25", "report_true": "True"}' | base64)
-    # gcloud functions call the-function --data '{"data":"'$DATA'"}'
+    # DATA=$(printf '{"report_true": "true", "report_left": "2021-09-19", "report_right": "2021-09-25", "debug_true": "true"}' | base64)
+    # gcloud functions call Data-Fetching-1 --data '{"data":"$DATA"}'
 
     weekly_report = DataFetcher()
     send_report = datetime.date.today().weekday() == 5
@@ -742,7 +742,7 @@ def data_fetch(event, context):
             payload = json.loads(decoded_data)
             left = payload.get("report_left", left)
             right = payload.get("report_right", right)
-            send_report = payload.get("report_true", False) or send_report
+            send_report = bool(payload.get("report_true", False)) or send_report
             global DEBUG
             DEBUG = bool(payload.get("debug_true", DEBUG))
 
